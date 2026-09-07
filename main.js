@@ -1,4 +1,22 @@
-// Referencias a elementos del DOM
+import { 
+  verificarSesion, 
+  registrarUsuario, 
+  iniciarSesion, 
+  cerrarSesion, 
+  usuarioActual 
+} from './auth.js';
+
+import { 
+  obtenerSeriesBD, 
+  obtenerComentariosBD, 
+  subirImagenStorage, 
+  crearSerieBD, 
+  eliminarSerieBD, 
+  editarSerieBD, 
+  agregarComentarioBD 
+} from './series.js';
+
+// Referencias DOM
 const secAuth = document.getElementById('sec-auth');
 const secFormulario = document.getElementById('sec-formulario');
 const userInfo = document.getElementById('user-info');
@@ -12,212 +30,114 @@ const btnRegister = document.getElementById('btn-register');
 const formSerie = document.getElementById('form-serie');
 const contenedorCards = document.getElementById('contenedor-cards');
 
-// Variable global para almacenar el usuario activo
-let usuarioActual = null;
+// 1. INICIALIZACIÓN Y SESIÓN
+verificarSesion((usuario) => {
+  actualizarUI(usuario);
+  cargarCatalogo();
+});
 
-// ==========================================
-// 1. GESTIÓN DE SESIÓN Y AUTENTICACIÓN
-// ==========================================
-
-// Verificar el estado de la sesión al cargar la página
-async function verificarSesion() {
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (session) {
-    usuarioActual = session.user;
-    mostrarInterfazLogueado();
+function actualizarUI(usuario) {
+  if (usuario) {
+    secAuth.style.display = 'none';
+    secFormulario.style.display = 'block';
+    btnLogout.style.display = 'inline-block';
+    userInfo.textContent = `Hola, ${usuario.email}`;
   } else {
-    usuarioActual = null;
-    mostrarInterfazDeslogueado();
+    secAuth.style.display = 'block';
+    secFormulario.style.display = 'none';
+    btnLogout.style.display = 'none';
+    userInfo.textContent = '';
+    document.getElementById('form-auth')?.reset();
   }
 }
 
-// Registrar un nuevo usuario
+// Eventos de Autenticación
 btnRegister.addEventListener('click', async () => {
-  const email = authEmail.value;
-  const password = authPassword.value;
+  const email = authEmail.value.trim();
+  const password = authPassword.value.trim();
+  if (!email || !password) return alert('Completá email y contraseña.');
 
-  if (!email || !password) {
-    alert('Por favor, completá el email y la contraseña.');
-    return;
-  }
-
-  const { data, error } = await supabase.auth.signUp({
-    email: email,
-    password: password
-  });
-
-  if (error) {
-    alert('Error al registrarse: ' + error.message);
-  } else {
-    alert('¡Registro exitoso! Ya podés ingresar con tu cuenta.');
-  }
+  const { error } = await registrarUsuario(email, password);
+  if (error) alert('Error: ' + error.message);
+  else alert('¡Registro exitoso! Ya podés ingresar.');
 });
 
-// Iniciar sesión
 btnLogin.addEventListener('click', async () => {
-  const email = authEmail.value;
-  const password = authPassword.value;
+  const email = authEmail.value.trim();
+  const password = authPassword.value.trim();
+  if (!email || !password) return alert('Ingresá email y contraseña.');
 
-  if (!email || !password) {
-    alert('Por favor, ingresá email y contraseña.');
-    return;
-  }
-
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email,
-    password: password
-  });
-
-  if (error) {
-    alert('Error al iniciar sesión: ' + error.message);
-  } else {
-    usuarioActual = data.user;
-    mostrarInterfazLogueado();
-  }
+  const { data, error } = await iniciarSesion(email, password);
+  if (error) alert('Error: ' + error.message);
+  else actualizarUI(data.user);
 });
 
-// Cerrar sesión
 btnLogout.addEventListener('click', async () => {
-  await supabase.auth.signOut();
-  usuarioActual = null;
-  mostrarInterfazDeslogueado();
+  await cerrarSesion();
+  actualizarUI(null);
 });
 
-// Cambiar la vista de la UI para usuarios autenticados
-function mostrarInterfazLogueado() {
-  secAuth.style.display = 'none';
-  secFormulario.style.display = 'block';
-  btnLogout.style.display = 'inline-block';
-  userInfo.textContent = `Hola, ${usuarioActual.email}`;
-}
-
-// Cambiar la vista de la UI para visitantes
-function mostrarInterfazDeslogueado() {
-  secAuth.style.display = 'block';
-  secFormulario.style.display = 'none';
-  btnLogout.style.display = 'none';
-  userInfo.textContent = '';
-  document.getElementById('form-auth').reset();
-}
-
-// ==========================================
-// 2. GUARDAR NUEVA RECOMENDACIÓN EN SUPABASE
-// ==========================================
-
+// 2. CREAR SERIE
 formSerie.addEventListener('submit', async (e) => {
   e.preventDefault();
-
-  if (!usuarioActual) {
-    alert('Debés iniciar sesión para publicar.');
-    return;
-  }
+  if (!usuarioActual) return alert('Debés iniciar sesión.');
 
   const titulo = document.getElementById('titulo').value;
   const genero = document.getElementById('genero').value;
   const puntuacion = parseFloat(document.getElementById('puntuacion').value);
   const resena = document.getElementById('resena').value;
-  
-  // Archivo seleccionado en el celular
   const archivoInput = document.getElementById('imagen-file');
   const archivo = archivoInput.files[0];
 
   let imagenUrl = 'https://via.placeholder.com/300x400?text=Sin+Portada';
 
   if (archivo) {
-    // Generar un nombre único para la imagen
-    const nombreArchivo = `${Date.now()}_${archivo.name}`;
-
-    // Subir archivo al bucket 'portadas'
-    const { data: storageData, error: storageError } = await supabase.storage
-      .from('portadas')
-      .upload(nombreArchivo, archivo);
-
-    if (storageError) {
-      alert("Error al subir la imagen: " + storageError.message);
-      return;
+    try {
+      imagenUrl = await subirImagenStorage(archivo);
+    } catch (err) {
+      return alert('Error al subir la imagen: ' + err.message);
     }
-
-    // Obtener la URL pública de la foto subida
-    const { data: urlData } = supabase.storage
-      .from('portadas')
-      .getPublicUrl(nombreArchivo);
-
-    imagenUrl = urlData.publicUrl;
   }
 
-  // Guardar en la tabla 'series'
-  const { error } = await supabase
-    .from('series')
-    .insert([
-      {
-        titulo: titulo,
-        genero: genero,
-        puntuacion: puntuacion,
-        imagen_url: imagenUrl,
-        resena: resena,
-        user_email: usuarioActual.email
-      }
-    ]);
+  const { error } = await crearSerieBD({
+    titulo,
+    genero,
+    puntuacion,
+    resena,
+    imagen_url: imagenUrl,
+    user_email: usuarioActual.email
+  });
 
-  if (error) {
-    alert('Error al guardar la serie: ' + error.message);
-  } else {
-    alert('¡Serie recomendada con éxito!');
+  if (error) alert('Error al guardar: ' + error.message);
+  else {
+    alert('¡Serie recomendada!');
     formSerie.reset();
     cargarCatalogo();
   }
 });
-// ==========================================
-// 3. OBTENER Y MOSTRAR CATÁLOGO DE SERIES
-// ==========================================
 
-// ==========================================
-// 3. OBTENER Y MOSTRAR CATÁLOGO DE SERIES (CON EDITAR Y ELIMINAR)
-// ==========================================
-
-// ==========================================
-// MOSTRAR CATÁLOGO CON SECCIÓN DE COMENTARIOS
-// ==========================================
-
+// 3. RENDERIZAR CATÁLOGO
 async function cargarCatalogo() {
   contenedorCards.innerHTML = '<p>Cargando recomendaciones...</p>';
 
-  // 1. Obtener todas las series
-  const { data: series, error: errSeries } = await supabase
-    .from('series')
-    .select('*')
-    .order('id', { ascending: false });
-
+  const { data: series, error: errSeries } = await obtenerSeriesBD();
   if (errSeries) {
     contenedorCards.innerHTML = '<p>Error al cargar el catálogo.</p>';
-    console.error(errSeries);
     return;
   }
 
-  if (series.length === 0) {
-    contenedorCards.innerHTML = '<p>Aún no hay recomendaciones. ¡Sé el primero en agregar una!</p>';
+  if (!series || series.length === 0) {
+    contenedorCards.innerHTML = '<p>Aún no hay recomendaciones.</p>';
     return;
   }
 
-  // 2. Obtener todos los comentarios de una sola consulta
-  const { data: comentarios, error: errComentarios } = await supabase
-    .from('comentarios')
-    .select('*')
-    .order('created_at', { ascending: true });
-
-  if (errComentarios) console.error(errComentarios);
-
+  const { data: comentarios } = await obtenerComentariosBD();
   contenedorCards.innerHTML = '';
 
-  // 3. Renderizar cada card con sus comentarios
   series.forEach(serie => {
     const esPropietario = usuarioActual && usuarioActual.email === serie.user_email;
-
-    // Filtrar los comentarios que pertenecen a ESTA serie
     const comentariosSerie = comentarios ? comentarios.filter(c => c.serie_id === serie.id) : [];
 
-    // Generar el HTML de la lista de comentarios
     let listaComentariosHTML = '';
     comentariosSerie.forEach(c => {
       listaComentariosHTML += `
@@ -237,9 +157,7 @@ async function cargarCatalogo() {
           </div>
           <h3 class="card-title">${serie.titulo}</h3>
           <p class="card-resena">${serie.resena}</p>
-          <div class="card-footer-author">
-            Recomendado por: <strong>${serie.user_email}</strong>
-          </div>
+          <div class="card-footer-author">Recomendado por: <strong>${serie.user_email}</strong></div>
 
           ${esPropietario ? `
             <div class="card-actions">
@@ -248,7 +166,6 @@ async function cargarCatalogo() {
             </div>
           ` : ''}
 
-          <!-- SECCIÓN DE COMENTARIOS -->
           <div class="seccion-comentarios">
             <h4>Comentarios (${comentariosSerie.length})</h4>
             <div class="lista-comentarios">
@@ -262,7 +179,6 @@ async function cargarCatalogo() {
               </div>
             ` : '<p class="aviso-login-comentario">Iniciá sesión para comentar.</p>'}
           </div>
-
         </div>
       </article>
     `;
@@ -270,91 +186,99 @@ async function cargarCatalogo() {
   });
 }
 
-// ==========================================
-// FUNCIÓN PARA GUARDAR UN COMENTARIO
-// ==========================================
-
+// 4. FUNCIONES GLOBALES PARA EVENTOS ONCLICK EN EL HTML
 window.agregarComentario = async function(serieId) {
   const input = document.getElementById(`input-comentario-${serieId}`);
   const texto = input.value.trim();
+  if (!texto) return alert('Escribí algo antes de enviar.');
 
-  if (!texto) {
-    alert("Escribí algo antes de enviar.");
-    return;
-  }
-
-  const { error } = await supabase
-    .from('comentarios')
-    .insert([
-      {
-        texto: texto,
-        user_email: usuarioActual.email,
-        serie_id: serieId
-      }
-    ]);
-
-  if (error) {
-    alert("Error al comentar: " + error.message);
-  } else {
+  const { error } = await agregarComentarioBD(serieId, texto, usuarioActual.email);
+  if (error) alert('Error: ' + error.message);
+  else {
     input.value = '';
-    cargarCatalogo(); // Recargar para ver el nuevo comentario
+    cargarCatalogo();
   }
 };
-// ==========================================
-// 4. FUNCIONES DE BORRADO Y EDICIÓN
-// ==========================================
 
-// ELIMINAR REGISTRO DE SUPABASE
 window.eliminarSerie = async function(id) {
-  const confirmacion = confirm("¿Estás seguro/a de que querés borrar esta recomendación?");
-  
-  if (!confirmacion) return;
+  const result = await Swal.fire({
+    title: '¿Estás seguro/a?',
+    text: "No vas a poder revertir esta acción",
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonColor: '#d63031',
+    cancelButtonColor: '#6c5ce7',
+    confirmButtonText: 'Sí, borrar',
+    cancelButtonText: 'Cancelar'
+  });
 
-  const { error } = await supabase
-    .from('series')
-    .delete()
-    .eq('id', id);
-
-  if (error) {
-    alert("Error al eliminar: " + error.message);
-  } else {
-    alert("¡Recomendación eliminada con éxito!");
-    cargarCatalogo(); // Recargamos la lista
+  if (result.isConfirmed) {
+    const { error } = await eliminarSerieBD(id);
+    if (error) {
+      Swal.fire('Error', error.message, 'error');
+    } else {
+      Swal.fire('¡Borrado!', 'La recomendación fue eliminada.', 'success');
+      cargarCatalogo();
+    }
   }
 };
 
-// EDITAR REGISTRO EN SUPABASE
+
 window.editarSerie = async function(id, resenaActual, puntuacionActual) {
-  // Pedimos los nuevos valores mediante ventanas prompt sencillas para la clase
-  const nuevaResena = prompt("Modificá tu reseña:", resenaActual);
-  if (nuevaResena === null) return; // Si cancela, salimos
+  const { value: formValues } = await Swal.fire({
+    title: 'Editar recomendación',
+    html: `
+      <label style="display:block; text-align:left; margin-bottom:0.3rem;">Nueva reseña:</label>
+      <textarea id="swal-input-resena" class="swal2-textarea" style="width:90%; margin:0 0 1rem 0;">${resenaActual}</textarea>
+      
+      <label style="display:block; text-align:left; margin-bottom:0.3rem;">Nueva puntuación (1 al 10):</label>
+      <input id="swal-input-puntuacion" type="number" min="1" max="10" class="swal2-input" value="${puntuacionActual}" style="width:90%; margin:0;">
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar cambios',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#6c5ce7',
+    preConfirm: () => {
+      const nuevaResena = document.getElementById('swal-input-resena').value.trim();
+      const nuevaPuntuacion = parseFloat(document.getElementById('swal-input-puntuacion').value);
 
-  const nuevaPuntuacion = prompt("Modificá la puntuación (1 al 10):", puntuacionActual);
-  if (nuevaPuntuacion === null) return;
+      if (!nuevaResena) {
+        Swal.showValidationMessage('La reseña no puede estar vacía');
+        return false;
+      }
+      if (isNaN(nuevaPuntuacion) || nuevaPuntuacion < 1 || nuevaPuntuacion > 10) {
+        Swal.showValidationMessage('Ingresá una puntuación válida entre 1 y 10');
+        return false;
+      }
 
-  const puntuacionNum = parseFloat(nuevaPuntuacion);
+      return { nuevaResena, nuevaPuntuacion };
+    }
+  });
 
-  if (isNaN(puntuacionNum) || puntuacionNum < 1 || puntuacionNum > 10) {
-    alert("Por favor ingresá un número válido entre 1 y 10.");
-    return;
-  }
-
-  // Actualizamos el registro en la base de datos
-  const { error } = await supabase
-    .from('series')
-    .update({ 
-      resena: nuevaResena, 
-      puntuacion: puntuacionNum 
-    })
-    .eq('id', id);
-
-  if (error) {
-    alert("Error al actualizar: " + error.message);
-  } else {
-    alert("¡Recomendación actualizada!");
-    cargarCatalogo(); // Recargamos el catálogo
+  if (formValues) {
+    const { error } = await editarSerieBD(id, formValues.nuevaResena, formValues.nuevaPuntuacion);
+    if (error) {
+      Swal.fire('Error', error.message, 'error');
+    } else {
+      Swal.fire('¡Actualizado!', 'La reseña ha sido modificada.', 'success');
+      cargarCatalogo();
+    }
   }
 };
-// INICIALIZACIÓN
-verificarSesion();
-cargarCatalogo();
+
+
+Swal.fire({
+  icon: 'success',
+  title: '¡Genial!',
+  text: '¡Serie recomendada con éxito!',
+  confirmButtonColor: '#6c5ce7'
+});
+
+
+Swal.fire({
+  icon: 'error',
+  title: 'Oops...',
+  text: 'Error al guardar: ' + error.message,
+  confirmButtonColor: '#d63031'
+});

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SeriesApp - Recomendaciones</title>
   <link rel="stylesheet" href="style.css">
+  <!-- Librería SweetAlert2 para alertas personalizadas -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <!-- Enlace al Manifest -->
 <!-- Enlace al Manifest -->
 <link rel="manifest" href="manifest.json" />
@@ -115,10 +117,11 @@
 
   <!-- Carga de scripts en orden -->
 <!-- 2. Tu cliente configurado -->
-  <script src="supabaseClient.js"></script>
-  
-  <!-- 3. La lógica principal de la app -->
-  <script src="main.js"></script>  
+ <!-- <script src="supabaseClient.js"></script>-->
 
+  <!-- Cambiamos src por el nuevo main.js usando módulos -->
+<script type="module" src="main.js"></script>
+  
+ 
 </body>
 </html>

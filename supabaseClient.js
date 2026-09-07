@@ -9,5 +9,7 @@ const SUPABASE_KEY = "sb_publishable_JrHcJJe8PbZXW-5WZE0aMQ_A8E9Bzud";
 
 // Crear el cliente y asignarlo a la variable global 'supabase'
 // (removimos 'export' y cambiamos la sintaxis)
-window.supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+//window.supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 //export const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+export const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
